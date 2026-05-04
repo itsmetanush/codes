@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Scout</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Stock Scout</h1>
+        <p>
+          Track a curated watchlist and rank stocks with a simple score that favors
+          value, momentum, and analyst targets.
+        </p>
+      </header>
+
+      <section class="controls" aria-label="Stock controls">
+        <label for="symbols">Symbols (comma-separated)</label>
+        <input
+          id="symbols"
+          type="text"
+          value="AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA,BRK-B,JPM,LLY"
+        />
+        <button id="refreshBtn">Refresh now</button>
+      </section>
+
+      <section class="meta" aria-live="polite">
+        <span id="status">Loading…</span>
+        <span id="lastUpdated"></span>
+      </section>
+
+      <section>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Symbol</th>
+                <th>Price</th>
+                <th>1D %</th>
+                <th>P/E</th>
+                <th>Target %</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="stockBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="notes">
+        <h2>How "best" is estimated</h2>
+        <ul>
+          <li>Higher upside to analyst target improves score.</li>
+          <li>Positive daily momentum improves score.</li>
+          <li>Lower positive P/E improves score (value tilt).</li>
+        </ul>
+        <p>This tool is for education only — not financial advice.</p>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
