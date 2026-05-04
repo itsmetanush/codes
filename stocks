@@ -1,0 +1,337 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/app.js b/app.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..97bf273737968a4cd015ab79a86f7ce4e9ca624b
+--- /dev/null
++++ b/app.js
+@@ -0,0 +1,115 @@
++const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
++
++const elements = {
++  symbols: document.getElementById('symbols'),
++  refreshBtn: document.getElementById('refreshBtn'),
++  status: document.getElementById('status'),
++  lastUpdated: document.getElementById('lastUpdated'),
++  stockBody: document.getElementById('stockBody')
++};
++
++const formatCurrency = (value) =>
++  Number.isFinite(value)
++    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
++    : '—';
++
++const formatPercent = (value) =>
++  Number.isFinite(value) ? `${value.toFixed(2)}%` : '—';
++
++const normalizeSymbols = (input) =>
++  [...new Set(input.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean))];
++
++const valueScore = (pe) => {
++  if (!Number.isFinite(pe) || pe <= 0) return 0;
++  return Math.max(0, 25 - pe) * 1.2;
++};
++
++const scoreStock = (stock) => {
++  const targetUpside = Number.isFinite(stock.targetUpside) ? stock.targetUpside : 0;
++  const dailyMomentum = Number.isFinite(stock.regularMarketChangePercent)
++    ? stock.regularMarketChangePercent
++    : 0;
++
++  return targetUpside * 1.5 + dailyMomentum * 1.1 + valueScore(stock.trailingPE);
++};
++
++const renderRows = (stocks) => {
++  elements.stockBody.innerHTML = '';
++
++  stocks.forEach((stock, idx) => {
++    const row = document.createElement('tr');
++
++    const changeClass = stock.regularMarketChangePercent >= 0 ? 'positive' : 'negative';
++    const targetClass = stock.targetUpside >= 0 ? 'positive' : 'negative';
++
++    row.innerHTML = `
++      <td>${idx + 1}</td>
++      <td>${stock.symbol}</td>
++      <td>${formatCurrency(stock.regularMarketPrice)}</td>
++      <td class="${changeClass}">${formatPercent(stock.regularMarketChangePercent)}</td>
++      <td>${Number.isFinite(stock.trailingPE) ? stock.trailingPE.toFixed(2) : '—'}</td>
++      <td class="${targetClass}">${formatPercent(stock.targetUpside)}</td>
++      <td>${stock.score.toFixed(2)}</td>
++    `;
++
++    elements.stockBody.appendChild(row);
++  });
++};
++
++const fetchQuotes = async (symbols) => {
++  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
++    symbols.join(',')
++  )}`;
++  const response = await fetch(url);
++  if (!response.ok) {
++    throw new Error(`HTTP ${response.status}`);
++  }
++
++  const payload = await response.json();
++  return payload?.quoteResponse?.result ?? [];
++};
++
++const refresh = async () => {
++  const symbols = normalizeSymbols(elements.symbols.value);
++  if (!symbols.length) {
++    elements.status.textContent = 'Please enter at least one symbol.';
++    elements.stockBody.innerHTML = '';
++    return;
++  }
++
++  try {
++    elements.status.textContent = 'Refreshing market data…';
++
++    const quotes = await fetchQuotes(symbols);
++    const ranked = quotes
++      .map((q) => {
++        const targetUpside =
++          Number.isFinite(q.targetMeanPrice) && Number.isFinite(q.regularMarketPrice)
++            ? ((q.targetMeanPrice - q.regularMarketPrice) / q.regularMarketPrice) * 100
++            : NaN;
++
++        const item = {
++          symbol: q.symbol,
++          regularMarketPrice: q.regularMarketPrice,
++          regularMarketChangePercent: q.regularMarketChangePercent,
++          trailingPE: q.trailingPE,
++          targetUpside
++        };
++
++        return { ...item, score: scoreStock(item) };
++      })
++      .sort((a, b) => b.score - a.score);
++
++    renderRows(ranked);
++    elements.status.textContent = `Showing ${ranked.length} stocks. Auto-refresh every 15 minutes.`;
++    elements.lastUpdated.textContent = `Last updated: ${new Date().toLocaleString()}`;
++  } catch (error) {
++    console.error(error);
++    elements.status.textContent =
++      'Could not load market data. This can happen if the data source blocks browser requests.';
++  }
++};
++
++elements.refreshBtn.addEventListener('click', refresh);
++setInterval(refresh, REFRESH_INTERVAL_MS);
++refresh();
+diff --git a/index.html b/index.html
+new file mode 100644
+index 0000000000000000000000000000000000000000..f0177df1d5e743e07efc6f1408146bd69b8093b6
+--- /dev/null
++++ b/index.html
+@@ -0,0 +1,66 @@
++<!doctype html>
++<html lang="en">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>Stock Scout</title>
++    <link rel="stylesheet" href="styles.css" />
++  </head>
++  <body>
++    <main class="container">
++      <header>
++        <h1>Stock Scout</h1>
++        <p>
++          Track a curated watchlist and rank stocks with a simple score that favors
++          value, momentum, and analyst targets.
++        </p>
++      </header>
++
++      <section class="controls" aria-label="Stock controls">
++        <label for="symbols">Symbols (comma-separated)</label>
++        <input
++          id="symbols"
++          type="text"
++          value="AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA,BRK-B,JPM,LLY"
++        />
++        <button id="refreshBtn">Refresh now</button>
++      </section>
++
++      <section class="meta" aria-live="polite">
++        <span id="status">Loading…</span>
++        <span id="lastUpdated"></span>
++      </section>
++
++      <section>
++        <div class="table-wrap">
++          <table>
++            <thead>
++              <tr>
++                <th>Rank</th>
++                <th>Symbol</th>
++                <th>Price</th>
++                <th>1D %</th>
++                <th>P/E</th>
++                <th>Target %</th>
++                <th>Score</th>
++              </tr>
++            </thead>
++            <tbody id="stockBody"></tbody>
++          </table>
++        </div>
++      </section>
++
++      <section class="notes">
++        <h2>How "best" is estimated</h2>
++        <ul>
++          <li>Higher upside to analyst target improves score.</li>
++          <li>Positive daily momentum improves score.</li>
++          <li>Lower positive P/E improves score (value tilt).</li>
++        </ul>
++        <p>This tool is for education only — not financial advice.</p>
++      </section>
++    </main>
++
++    <script src="app.js"></script>
++  </body>
++</html>
+diff --git a/styles.css b/styles.css
+new file mode 100644
+index 0000000000000000000000000000000000000000..9ad3cba5fe0ab33c642f940861df14016d22b44d
+--- /dev/null
++++ b/styles.css
+@@ -0,0 +1,134 @@
++:root {
++  color-scheme: dark;
++  --bg: #0b1220;
++  --panel: #111a2e;
++  --text: #e9eefc;
++  --muted: #9fb0d0;
++  --green: #22c55e;
++  --red: #ef4444;
++  --blue: #60a5fa;
++}
++
++* {
++  box-sizing: border-box;
++}
++
++body {
++  margin: 0;
++  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
++    sans-serif;
++  background: linear-gradient(180deg, #0a1020 0%, #0b1220 100%);
++  color: var(--text);
++}
++
++.container {
++  max-width: 1050px;
++  margin: 0 auto;
++  padding: 2rem 1rem 3rem;
++}
++
++h1 {
++  margin-bottom: 0.5rem;
++}
++
++p {
++  color: var(--muted);
++}
++
++.controls,
++.meta,
++.notes,
++.table-wrap {
++  background: var(--panel);
++  border: 1px solid #26324d;
++  border-radius: 12px;
++}
++
++.controls {
++  display: grid;
++  grid-template-columns: 1fr auto;
++  gap: 0.75rem;
++  padding: 1rem;
++  margin: 1.25rem 0 0.75rem;
++}
++
++.controls label {
++  grid-column: 1 / -1;
++  font-size: 0.9rem;
++  color: var(--muted);
++}
++
++input,
++button {
++  border-radius: 10px;
++  border: 1px solid #31405f;
++  background: #0f172a;
++  color: var(--text);
++  padding: 0.7rem 0.8rem;
++  font-size: 0.95rem;
++}
++
++button {
++  cursor: pointer;
++  background: #1d4ed8;
++  border-color: #2563eb;
++  font-weight: 600;
++}
++
++button:hover {
++  filter: brightness(1.1);
++}
++
++.meta {
++  display: flex;
++  justify-content: space-between;
++  gap: 1rem;
++  padding: 0.75rem 1rem;
++  margin-bottom: 0.75rem;
++  color: var(--muted);
++}
++
++.table-wrap {
++  overflow-x: auto;
++}
++
++table {
++  width: 100%;
++  border-collapse: collapse;
++}
++
++th,
++td {
++  text-align: left;
++  padding: 0.75rem;
++  border-bottom: 1px solid #24314c;
++}
++
++th {
++  color: var(--muted);
++  font-weight: 600;
++}
++
++td.positive {
++  color: var(--green);
++}
++
++td.negative {
++  color: var(--red);
++}
++
++.notes {
++  margin-top: 1rem;
++  padding: 1rem;
++}
++
++.notes h2 {
++  margin-top: 0;
++  font-size: 1rem;
++}
++
++@media (max-width: 720px) {
++  .controls {
++    grid-template-columns: 1fr;
++  }
++}
+ 
+EOF
+)
